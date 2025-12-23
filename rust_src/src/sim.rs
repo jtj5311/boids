@@ -53,6 +53,16 @@ pub enum HealthState {
     Recovered,
 }
 
+impl HealthState {
+    fn idx(self) -> usize {
+        match self {
+            HealthState::Susceptible => 0,
+            HealthState::Infected => 1,
+            HealthState::Recovered => 2,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct Boid {
     pub pos: Vec2f,
@@ -138,15 +148,15 @@ pub struct SirCounts {
     pub recovered: usize,
 }
 
-const FEATURE_SIZE: usize = 14;
-const HIDDEN_SIZE: usize = 16;
+pub const FEATURE_SIZE: usize = 14;
+pub const HIDDEN_SIZE: usize = 16;
 
 pub struct Simulation {
     pub boids: Vec<Boid>,
     grid: SpatialHash,
     cfg: SimConfig,
     rng: Lcg,
-    policy: NnPolicy,
+    policies: [NnPolicy; 3],
 }
 
 impl Simulation {
@@ -177,9 +187,15 @@ impl Simulation {
             grid: SpatialHash::new(cfg.neighbor_radius.max(cfg.infection_radius)),
             cfg,
             rng,
-            policy: NnPolicy::new(FEATURE_SIZE, HIDDEN_SIZE),
+            policies: [
+                NnPolicy::new(FEATURE_SIZE, HIDDEN_SIZE),
+                NnPolicy::new(FEATURE_SIZE, HIDDEN_SIZE),
+                NnPolicy::new(FEATURE_SIZE, HIDDEN_SIZE),
+            ],
         };
-        sim.policy.randomize(&mut sim.rng, 0.6);
+        for policy in &mut sim.policies {
+            policy.randomize(&mut sim.rng, 0.6);
+        }
         sim.seed_infections();
         sim
     }
@@ -226,7 +242,8 @@ impl Simulation {
 
         for i in 0..self.boids.len() {
             let (inputs, infected_contact) = self.features_for(i);
-            let accel = self.policy.forward(&inputs).mul(self.cfg.max_force);
+            let policy = &self.policies[self.boids[i].state.idx()];
+            let accel = policy.forward(&inputs).mul(self.cfg.max_force);
             accelerations[i] = accel.limit(self.cfg.max_force);
             if self.boids[i].state == HealthState::Susceptible
                 && infected_contact
@@ -266,6 +283,18 @@ impl Simulation {
             }
         }
         counts
+    }
+
+    pub fn policy_for(&self, state: HealthState) -> &NnPolicy {
+        &self.policies[state.idx()]
+    }
+
+    pub fn set_policy_for(&mut self, state: HealthState, policy: NnPolicy) {
+        self.policies[state.idx()] = policy;
+    }
+
+    pub fn policy_param_count(&self) -> usize {
+        self.policies[0].param_count()
     }
 
     fn features_for(&self, idx: usize) -> ([f32; FEATURE_SIZE], bool) {
@@ -382,7 +411,8 @@ fn wrap_position(pos: Vec2f, size: Vec2f) -> Vec2f {
     Vec2f::new(x, y)
 }
 
-struct NnPolicy {
+#[derive(Clone, Debug)]
+pub struct NnPolicy {
     input_size: usize,
     hidden_size: usize,
     w1: Vec<f32>,
@@ -392,7 +422,7 @@ struct NnPolicy {
 }
 
 impl NnPolicy {
-    fn new(input_size: usize, hidden_size: usize) -> Self {
+    pub fn new(input_size: usize, hidden_size: usize) -> Self {
         Self {
             input_size,
             hidden_size,
@@ -403,7 +433,7 @@ impl NnPolicy {
         }
     }
 
-    fn randomize(&mut self, rng: &mut Lcg, scale: f32) {
+    pub fn randomize(&mut self, rng: &mut Lcg, scale: f32) {
         for w in &mut self.w1 {
             *w = (rng.next_f32() * 2.0 - 1.0) * scale;
         }
@@ -418,7 +448,7 @@ impl NnPolicy {
         }
     }
 
-    fn forward(&self, input: &[f32; FEATURE_SIZE]) -> Vec2f {
+    pub fn forward(&self, input: &[f32; FEATURE_SIZE]) -> Vec2f {
         let mut hidden = vec![0.0; self.hidden_size];
         for h in 0..self.hidden_size {
             let mut acc = self.b1[h];
@@ -439,6 +469,46 @@ impl NnPolicy {
             out[o] = acc.tanh();
         }
         Vec2f::new(out[0], out[1])
+    }
+
+    pub fn param_count(&self) -> usize {
+        self.w1.len() + self.b1.len() + self.w2.len() + self.b2.len()
+    }
+
+    pub fn to_vec(&self) -> Vec<f32> {
+        let mut params = Vec::with_capacity(self.param_count());
+        params.extend_from_slice(&self.w1);
+        params.extend_from_slice(&self.b1);
+        params.extend_from_slice(&self.w2);
+        params.extend_from_slice(&self.b2);
+        params
+    }
+
+    pub fn from_vec(input_size: usize, hidden_size: usize, params: &[f32]) -> Self {
+        let w1_len = input_size * hidden_size;
+        let b1_len = hidden_size;
+        let w2_len = hidden_size * 2;
+        let b2_len = 2;
+        let expected = w1_len + b1_len + w2_len + b2_len;
+        let mut offset = 0;
+        let mut take = |n: usize| {
+            let slice = &params[offset..offset + n];
+            offset += n;
+            slice.to_vec()
+        };
+        let w1 = take(w1_len);
+        let b1 = take(b1_len);
+        let w2 = take(w2_len);
+        let b2 = take(b2_len);
+        let _ = expected;
+        Self {
+            input_size,
+            hidden_size,
+            w1,
+            b1,
+            w2,
+            b2,
+        }
     }
 }
 
