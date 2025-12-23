@@ -157,6 +157,9 @@ pub struct Simulation {
     cfg: SimConfig,
     rng: Lcg,
     policies: [NnPolicy; 3],
+    accel_buf: Vec<Vec2f>,
+    infected_buf: Vec<bool>,
+    hidden_buf: Vec<f32>,
 }
 
 impl Simulation {
@@ -192,6 +195,9 @@ impl Simulation {
                 NnPolicy::new(FEATURE_SIZE, HIDDEN_SIZE),
                 NnPolicy::new(FEATURE_SIZE, HIDDEN_SIZE),
             ],
+            accel_buf: Vec::new(),
+            infected_buf: Vec::new(),
+            hidden_buf: vec![0.0; HIDDEN_SIZE],
         };
         for policy in &mut sim.policies {
             policy.randomize(&mut sim.rng, 0.6);
@@ -236,31 +242,45 @@ impl Simulation {
 
     pub fn step(&mut self, dt: f32) {
         self.rebuild_grid();
-        let mut accelerations = vec![Vec2f::default(); self.boids.len()];
-        let mut newly_infected = vec![false; self.boids.len()];
+        if self.accel_buf.len() != self.boids.len() {
+            self.accel_buf.resize(self.boids.len(), Vec2f::default());
+        } else {
+            for accel in &mut self.accel_buf {
+                *accel = Vec2f::default();
+            }
+        }
+        if self.infected_buf.len() != self.boids.len() {
+            self.infected_buf.resize(self.boids.len(), false);
+        } else {
+            for flag in &mut self.infected_buf {
+                *flag = false;
+            }
+        }
         let infect_p = 1.0 - (-self.cfg.infection_beta * dt).exp();
 
         for i in 0..self.boids.len() {
             let (inputs, infected_contact) = self.features_for(i);
             let policy = &self.policies[self.boids[i].state.idx()];
-            let accel = policy.forward(&inputs).mul(self.cfg.max_force);
-            accelerations[i] = accel.limit(self.cfg.max_force);
+            let accel = policy
+                .forward_into(&inputs, &mut self.hidden_buf)
+                .mul(self.cfg.max_force);
+            self.accel_buf[i] = accel.limit(self.cfg.max_force);
             if self.boids[i].state == HealthState::Susceptible
                 && infected_contact
                 && self.rng.next_f32() < infect_p
             {
-                newly_infected[i] = true;
+                self.infected_buf[i] = true;
             }
         }
 
-        for (boid, accel) in self.boids.iter_mut().zip(accelerations) {
+        for (boid, accel) in self.boids.iter_mut().zip(self.accel_buf.iter().copied()) {
             boid.vel = boid.vel.add(accel.mul(dt)).limit(self.cfg.max_speed);
             boid.pos = boid.pos.add(boid.vel.mul(dt));
             boid.pos = wrap_position(boid.pos, self.cfg.world_size);
         }
 
         for (i, boid) in self.boids.iter_mut().enumerate() {
-            if newly_infected[i] {
+            if self.infected_buf[i] {
                 boid.state = HealthState::Infected;
                 boid.infected_time = 0.0;
             }
@@ -450,13 +470,17 @@ impl NnPolicy {
 
     pub fn forward(&self, input: &[f32; FEATURE_SIZE]) -> Vec2f {
         let mut hidden = vec![0.0; self.hidden_size];
-        for h in 0..self.hidden_size {
+        self.forward_into(input, &mut hidden)
+    }
+
+    pub fn forward_into(&self, input: &[f32; FEATURE_SIZE], hidden: &mut [f32]) -> Vec2f {
+        for (h, slot) in hidden.iter_mut().enumerate() {
             let mut acc = self.b1[h];
             let row = h * self.input_size;
             for i in 0..self.input_size {
                 acc += self.w1[row + i] * input[i];
             }
-            hidden[h] = acc.tanh();
+            *slot = acc.tanh();
         }
 
         let mut out = [0.0; 2];
