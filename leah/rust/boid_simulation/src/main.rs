@@ -8,13 +8,13 @@ mod simulation;
 mod visualization;
 
 use constants::*;
-use sir::{count_sir, process_infections};
+use sir::{count_disease_states, process_infections, DiseaseModel};
 use simulation::{SimParams, initialize_boids};
 use visualization::PopulationHistory;
 
 fn window_conf() -> Conf {
     Conf {
-        window_title: "Boid Simulation with SIR Model - Press Enter to Restart".to_owned(),
+        window_title: "Boid Simulation with Disease Models - Press Enter to Restart".to_owned(),
         window_width: SCREEN_WIDTH as i32,
         window_height: SCREEN_HEIGHT as i32,
         window_resizable: false,
@@ -36,6 +36,7 @@ async fn main() {
 
         let mut should_restart = false;
         let mut boid_count_changed = false;
+        let mut model_changed = false;
 
         egui_macroquad::ui(|egui_ctx| {
             egui::Window::new("Simulation Parameters (Press Enter to Restart)")
@@ -68,8 +69,22 @@ async fn main() {
                     });
 
                     ui.separator();
-                    ui.heading("SIR Model Parameters");
+                    ui.heading("Disease Model Parameters");
                     ui.horizontal(|ui| {
+                        ui.vertical(|ui| {
+                            ui.label("Model Type");
+                            let old_model = params.model;
+                            egui::ComboBox::from_id_salt("model_selector")
+                                .selected_text(format!("{:?}", params.model))
+                                .show_ui(ui, |ui| {
+                                    ui.selectable_value(&mut params.model, DiseaseModel::SIR, "SIR");
+                                    ui.selectable_value(&mut params.model, DiseaseModel::SIS, "SIS");
+                                    ui.selectable_value(&mut params.model, DiseaseModel::SEIR, "SEIR");
+                                });
+                            if params.model != old_model {
+                                model_changed = true;
+                            }
+                        });
                         ui.vertical(|ui| {
                             ui.label("Initial Infected");
                             ui.add(egui::Slider::new(&mut params.initial_infected, 1..=20));
@@ -86,6 +101,12 @@ async fn main() {
                             ui.label("Recovery Time (s)");
                             ui.add(egui::Slider::new(&mut params.recovery_time, 1.0..=20.0));
                         });
+                        if params.model == DiseaseModel::SEIR {
+                            ui.vertical(|ui| {
+                                ui.label("Incubation Time (s)");
+                                ui.add(egui::Slider::new(&mut params.incubation_time, 1.0..=20.0));
+                            });
+                        }
                         ui.vertical(|ui| {
                             ui.label("");
                             if ui.button("Restart").clicked() {
@@ -96,7 +117,7 @@ async fn main() {
                 });
         });
 
-        if is_key_pressed(KeyCode::Enter) || should_restart || boid_count_changed {
+        if is_key_pressed(KeyCode::Enter) || should_restart || boid_count_changed || model_changed {
             boids = initialize_boids(params.num_boids, params.initial_infected);
             history.clear();
             frame_counter = 0;
@@ -111,7 +132,7 @@ async fn main() {
 
         for boid in &mut boids {
             boid.update(&neighbor_data, &params);
-            boid.update_sir(&params, dt);
+            boid.update_disease_state(&params, dt);
         }
 
         for boid in &boids {
@@ -120,19 +141,28 @@ async fn main() {
 
         frame_counter += 1;
         if frame_counter % 10 == 0 {
-            let (s, i, r) = count_sir(&boids);
-            history.add(s, i, r);
+            let (s, e, i, r) = count_disease_states(&boids);
+            history.add(s, e, i, r);
         }
 
         history.draw(
             SCREEN_WIDTH - GRAPH_WIDTH - 10.0,
             SCREEN_HEIGHT - GRAPH_HEIGHT - 10.0,
             params.num_boids as f32,
+            params.model,
         );
 
-        let (s, i, r) = count_sir(&boids);
+        let (s, e, i, r) = count_disease_states(&boids);
+        let status_text = match params.model {
+            DiseaseModel::SIR | DiseaseModel::SIS => {
+                format!("S: {} | I: {} | R: {}", s, i, r)
+            }
+            DiseaseModel::SEIR => {
+                format!("S: {} | E: {} | I: {} | R: {}", s, e, i, r)
+            }
+        };
         draw_text(
-            &format!("S: {} | I: {} | R: {}", s, i, r),
+            &status_text,
             20.0,
             SCREEN_HEIGHT - 20.0,
             24.0,

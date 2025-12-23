@@ -2,20 +2,28 @@ use macroquad::prelude::rand;
 use crate::boid::Boid;
 use crate::simulation::SimParams;
 
-#[derive(Clone, Copy, PartialEq)]
-pub enum SIRState {
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum DiseaseState {
     Susceptible,
+    Exposed,
     Infected,
     Recovered,
+}
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum DiseaseModel {
+    SIR,
+    SIS,
+    SEIR,
 }
 
 pub fn process_infections(boids: &mut [Boid], params: &SimParams) {
     let mut new_infections = Vec::new();
 
     for i in 0..boids.len() {
-        if boids[i].sir_state == SIRState::Infected {
+        if boids[i].disease_state == DiseaseState::Infected {
             for j in 0..boids.len() {
-                if i != j && boids[j].sir_state == SIRState::Susceptible {
+                if i != j && boids[j].disease_state == DiseaseState::Susceptible {
                     let dist = (boids[i].position - boids[j].position).length();
                     if dist < params.infection_radius {
                         if rand::gen_range(0.0, 1.0) < params.infection_probability {
@@ -28,22 +36,29 @@ pub fn process_infections(boids: &mut [Boid], params: &SimParams) {
     }
 
     for &idx in &new_infections {
-        boids[idx].sir_state = SIRState::Infected;
+        // For SEIR, newly infected go to Exposed first
+        // For SIR and SIS, they go directly to Infected
+        boids[idx].disease_state = match params.model {
+            DiseaseModel::SEIR => DiseaseState::Exposed,
+            DiseaseModel::SIR | DiseaseModel::SIS => DiseaseState::Infected,
+        };
     }
 }
 
-pub fn count_sir(boids: &[Boid]) -> (usize, usize, usize) {
+pub fn count_disease_states(boids: &[Boid]) -> (usize, usize, usize, usize) {
     let mut s = 0;
+    let mut e = 0;
     let mut i = 0;
     let mut r = 0;
 
     for boid in boids {
-        match boid.sir_state {
-            SIRState::Susceptible => s += 1,
-            SIRState::Infected => i += 1,
-            SIRState::Recovered => r += 1,
+        match boid.disease_state {
+            DiseaseState::Susceptible => s += 1,
+            DiseaseState::Exposed => e += 1,
+            DiseaseState::Infected => i += 1,
+            DiseaseState::Recovered => r += 1,
         }
     }
 
-    (s, i, r)
+    (s, e, i, r)
 }

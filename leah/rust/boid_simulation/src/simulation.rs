@@ -1,7 +1,7 @@
 use macroquad::prelude::rand;
 use crate::boid::Boid;
 use crate::constants::{SCREEN_WIDTH, SCREEN_HEIGHT, UI_HEIGHT, GRAPH_HEIGHT};
-use crate::sir::SIRState;
+use crate::sir::{DiseaseState, DiseaseModel};
 
 pub struct SimParams {
     pub perception_radius: f32,
@@ -15,7 +15,9 @@ pub struct SimParams {
     pub infection_radius: f32,
     pub infection_probability: f32,
     pub recovery_time: f32,
+    pub incubation_time: f32,
     pub initial_infected: usize,
+    pub model: DiseaseModel,
 }
 
 impl Default for SimParams {
@@ -32,7 +34,9 @@ impl Default for SimParams {
             infection_radius: 15.0,
             infection_probability: 0.02,
             recovery_time: 5.0,
+            incubation_time: 3.0,
             initial_infected: 3,
+            model: DiseaseModel::SIR,
         }
     }
 }
@@ -53,13 +57,13 @@ pub fn initialize_boids(num_boids: usize, initial_infected: usize) -> Vec<Boid> 
             let x = (i as f32 + rand::gen_range(0.2, 0.8)) * cell_width;
             let y = UI_HEIGHT + (j as f32 + rand::gen_range(0.2, 0.8)) * cell_height;
 
-            let sir_state = if count < initial_infected {
-                SIRState::Infected
+            let disease_state = if count < initial_infected {
+                DiseaseState::Infected
             } else {
-                SIRState::Susceptible
+                DiseaseState::Susceptible
             };
 
-            boids.push(Boid::new(x, y, sir_state));
+            boids.push(Boid::new(x, y, disease_state));
             count += 1;
         }
     }

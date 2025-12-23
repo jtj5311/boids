@@ -2,25 +2,25 @@ use macroquad::prelude::*;
 use macroquad::prelude::rand;
 use crate::constants::{SCREEN_WIDTH, SCREEN_HEIGHT, UI_HEIGHT};
 use crate::simulation::SimParams;
-use crate::sir::SIRState;
+use crate::sir::{DiseaseState, DiseaseModel};
 
 #[derive(Clone)]
 pub struct Boid {
     pub position: Vec2,
     pub velocity: Vec2,
-    pub sir_state: SIRState,
-    pub infection_timer: f32,
+    pub disease_state: DiseaseState,
+    pub state_timer: f32,
 }
 
 impl Boid {
-    pub fn new(x: f32, y: f32, sir_state: SIRState) -> Self {
+    pub fn new(x: f32, y: f32, disease_state: DiseaseState) -> Self {
         let angle = rand::gen_range(0.0, std::f32::consts::TAU);
         let speed = rand::gen_range(1.5, 2.5);
         Self {
             position: vec2(x, y),
             velocity: vec2(angle.cos() * speed, angle.sin() * speed),
-            sir_state,
-            infection_timer: 0.0,
+            disease_state,
+            state_timer: 0.0,
         }
     }
 
@@ -92,16 +92,52 @@ impl Boid {
         }
     }
 
-    pub fn update_sir(&mut self, params: &SimParams, dt: f32) {
-        match self.sir_state {
-            SIRState::Infected => {
-                self.infection_timer += dt;
-                if self.infection_timer >= params.recovery_time {
-                    self.sir_state = SIRState::Recovered;
-                    self.infection_timer = 0.0;
+    pub fn update_disease_state(&mut self, params: &SimParams, dt: f32) {
+        self.state_timer += dt;
+
+        match params.model {
+            DiseaseModel::SIR => {
+                // SIR: Susceptible -> Infected -> Recovered
+                match self.disease_state {
+                    DiseaseState::Infected => {
+                        if self.state_timer >= params.recovery_time {
+                            self.disease_state = DiseaseState::Recovered;
+                            self.state_timer = 0.0;
+                        }
+                    }
+                    _ => {}
                 }
             }
-            _ => {}
+            DiseaseModel::SIS => {
+                // SIS: Susceptible -> Infected -> Susceptible
+                match self.disease_state {
+                    DiseaseState::Infected => {
+                        if self.state_timer >= params.recovery_time {
+                            self.disease_state = DiseaseState::Susceptible;
+                            self.state_timer = 0.0;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            DiseaseModel::SEIR => {
+                // SEIR: Susceptible -> Exposed -> Infected -> Recovered
+                match self.disease_state {
+                    DiseaseState::Exposed => {
+                        if self.state_timer >= params.incubation_time {
+                            self.disease_state = DiseaseState::Infected;
+                            self.state_timer = 0.0;
+                        }
+                    }
+                    DiseaseState::Infected => {
+                        if self.state_timer >= params.recovery_time {
+                            self.disease_state = DiseaseState::Recovered;
+                            self.state_timer = 0.0;
+                        }
+                    }
+                    _ => {}
+                }
+            }
         }
     }
 
@@ -122,10 +158,11 @@ impl Boid {
             self.position.y + (angle - 2.5).sin() * size * 0.5,
         );
 
-        let color = match self.sir_state {
-            SIRState::Susceptible => WHITE,
-            SIRState::Infected => RED,
-            SIRState::Recovered => BLUE,
+        let color = match self.disease_state {
+            DiseaseState::Susceptible => WHITE,
+            DiseaseState::Exposed => Color::from_rgba(255, 200, 0, 255), // Orangey-yellow
+            DiseaseState::Infected => RED,
+            DiseaseState::Recovered => BLUE,
         };
 
         draw_triangle(p1, p2, p3, color);
