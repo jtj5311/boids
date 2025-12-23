@@ -1,5 +1,6 @@
 use macroquad::prelude::*;
 use std::collections::HashMap;
+use std::f32::consts::PI;
 
 #[derive(Clone, Copy, Debug, Default)]
 struct Vec2f {
@@ -76,6 +77,10 @@ impl SpatialHash {
         self.buckets.clear();
     }
 
+    fn set_cell_size(&mut self, cell_size: f32) {
+        self.cell_size = cell_size.max(1.0);
+    }
+
     fn cell_key(&self, pos: Vec2f) -> CellKey {
         CellKey {
             x: (pos.x / self.cell_size).floor() as i32,
@@ -143,6 +148,26 @@ impl Simulation {
             grid: SpatialHash::new(cfg.neighbor_radius),
             cfg,
         }
+    }
+
+    fn set_params(
+        &mut self,
+        neighbor_radius: f32,
+        separation_radius: f32,
+        max_speed: f32,
+        max_force: f32,
+        weight_align: f32,
+        weight_cohesion: f32,
+        weight_separation: f32,
+    ) {
+        self.cfg.neighbor_radius = neighbor_radius.max(1.0);
+        self.cfg.separation_radius = separation_radius.min(self.cfg.neighbor_radius).max(0.5);
+        self.cfg.max_speed = max_speed.max(1.0);
+        self.cfg.max_force = max_force.max(1.0);
+        self.cfg.weight_align = weight_align.max(0.0);
+        self.cfg.weight_cohesion = weight_cohesion.max(0.0);
+        self.cfg.weight_separation = weight_separation.max(0.0);
+        self.grid.set_cell_size(self.cfg.neighbor_radius);
     }
 
     fn set_world_size(&mut self, size: Vec2f) {
@@ -255,6 +280,101 @@ impl Lcg {
     }
 }
 
+struct Knob {
+    label: &'static str,
+    value: f32,
+    min: f32,
+    max: f32,
+    center: Vec2f,
+    radius: f32,
+    dragging: bool,
+}
+
+impl Knob {
+    fn new(
+        label: &'static str,
+        value: f32,
+        min: f32,
+        max: f32,
+        center: Vec2f,
+        radius: f32,
+    ) -> Self {
+        Self {
+            label,
+            value,
+            min,
+            max,
+            center,
+            radius,
+            dragging: false,
+        }
+    }
+
+    fn t(&self) -> f32 {
+        if self.max == self.min {
+            0.0
+        } else {
+            (self.value - self.min) / (self.max - self.min)
+        }
+    }
+
+    fn angle_from_value(&self) -> f32 {
+        let t = self.t().clamp(0.0, 1.0);
+        let start = -3.0 * PI / 4.0;
+        let end = 3.0 * PI / 4.0;
+        start + t * (end - start)
+    }
+
+    fn update(&mut self) {
+        let (mx, my) = mouse_position();
+        let mouse = Vec2f::new(mx, my);
+        let dist = mouse.sub(self.center).length();
+        if is_mouse_button_pressed(MouseButton::Left) && dist <= self.radius {
+            self.dragging = true;
+        }
+        if is_mouse_button_released(MouseButton::Left) {
+            self.dragging = false;
+        }
+        if self.dragging && is_mouse_button_down(MouseButton::Left) {
+            let angle = (mouse.y - self.center.y).atan2(mouse.x - self.center.x);
+            let start = -3.0 * PI / 4.0;
+            let end = 3.0 * PI / 4.0;
+            let clamped = angle.clamp(start, end);
+            let t = (clamped - start) / (end - start);
+            self.value = self.min + t * (self.max - self.min);
+        }
+    }
+
+    fn draw(&self) {
+        let bg = Color::from_rgba(20, 24, 32, 255);
+        let ring = Color::from_rgba(90, 110, 135, 255);
+        let needle = Color::from_rgba(220, 240, 255, 255);
+        draw_circle(self.center.x, self.center.y, self.radius, bg);
+        draw_circle_lines(self.center.x, self.center.y, self.radius, 2.0, ring);
+        let angle = self.angle_from_value();
+        let dir = Vec2f::new(angle.cos(), angle.sin());
+        let tip = self.center.add(dir.mul(self.radius * 0.75));
+        draw_line(self.center.x, self.center.y, tip.x, tip.y, 2.5, needle);
+
+        let label_y = self.center.y + self.radius + 12.0;
+        draw_text(
+            self.label,
+            self.center.x - self.radius,
+            label_y,
+            16.0,
+            needle,
+        );
+        let value_text = format!("{:.2}", self.value);
+        draw_text(
+            &value_text,
+            self.center.x - self.radius,
+            label_y + 16.0,
+            14.0,
+            ring,
+        );
+    }
+}
+
 #[macroquad::main("Boids")]
 async fn main() {
     let cfg = SimConfig {
@@ -267,11 +387,46 @@ async fn main() {
         weight_cohesion: 0.8,
         weight_separation: 1.4,
     };
-    let mut sim = Simulation::new(2400, cfg, 1337);
+    let mut sim = Simulation::new(10000, cfg, 1337);
+    let mut knobs = vec![
+        Knob::new("Align", 1.0, 0.0, 3.0, Vec2f::new(70.0, 70.0), 28.0),
+        Knob::new("Cohere", 0.8, 0.0, 3.0, Vec2f::new(150.0, 70.0), 28.0),
+        Knob::new("Separate", 1.4, 0.0, 3.0, Vec2f::new(230.0, 70.0), 28.0),
+        Knob::new("N Radius", 60.0, 20.0, 140.0, Vec2f::new(70.0, 160.0), 28.0),
+        Knob::new("S Radius", 22.0, 5.0, 80.0, Vec2f::new(150.0, 160.0), 28.0),
+        Knob::new(
+            "Max Spd",
+            160.0,
+            40.0,
+            320.0,
+            Vec2f::new(230.0, 160.0),
+            28.0,
+        ),
+        Knob::new("Max F", 80.0, 10.0, 200.0, Vec2f::new(310.0, 160.0), 28.0),
+    ];
 
     loop {
         let dt = get_frame_time().min(0.05);
         sim.set_world_size(Vec2f::new(screen_width(), screen_height()));
+        for knob in &mut knobs {
+            knob.update();
+        }
+        let weight_align = knobs[0].value;
+        let weight_cohesion = knobs[1].value;
+        let weight_separation = knobs[2].value;
+        let neighbor_radius = knobs[3].value;
+        let separation_radius = knobs[4].value.min(neighbor_radius);
+        let max_speed = knobs[5].value;
+        let max_force = knobs[6].value;
+        sim.set_params(
+            neighbor_radius,
+            separation_radius,
+            max_speed,
+            max_force,
+            weight_align,
+            weight_cohesion,
+            weight_separation,
+        );
         sim.step(dt);
 
         clear_background(Color::from_rgba(8, 10, 14, 255));
@@ -294,6 +449,19 @@ async fn main() {
                 Vec2::new(right.x, right.y),
                 Color::from_rgba(220, 240, 255, 255),
             );
+        }
+
+        draw_rectangle(16.0, 16.0, 340.0, 200.0, Color::from_rgba(10, 12, 18, 180));
+        draw_rectangle_lines(
+            16.0,
+            16.0,
+            340.0,
+            200.0,
+            1.0,
+            Color::from_rgba(40, 60, 80, 200),
+        );
+        for knob in &knobs {
+            knob.draw();
         }
 
         next_frame().await;
