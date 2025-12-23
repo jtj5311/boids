@@ -31,15 +31,6 @@ impl Vec2f {
         (self.x * self.x + self.y * self.y).sqrt()
     }
 
-    pub fn normalize(self) -> Vec2f {
-        let len = self.length();
-        if len > 0.0 {
-            self.div(len)
-        } else {
-            Vec2f::default()
-        }
-    }
-
     pub fn limit(self, max: f32) -> Vec2f {
         let len = self.length();
         if len > max { self.mul(max / len) } else { self }
@@ -61,14 +52,6 @@ impl HealthState {
             HealthState::Recovered => 2,
         }
     }
-}
-
-#[derive(Clone, Copy, Debug)]
-pub struct Boid {
-    pub pos: Vec2f,
-    pub vel: Vec2f,
-    pub state: HealthState,
-    pub infected_time: f32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -152,19 +135,31 @@ pub const FEATURE_SIZE: usize = 14;
 pub const HIDDEN_SIZE: usize = 16;
 
 pub struct Simulation {
-    pub boids: Vec<Boid>,
+    pos_x: Vec<f32>,
+    pos_y: Vec<f32>,
+    vel_x: Vec<f32>,
+    vel_y: Vec<f32>,
+    state: Vec<HealthState>,
+    infected_time: Vec<f32>,
     grid: SpatialHash,
     cfg: SimConfig,
     rng: Lcg,
     policies: [NnPolicy; 3],
-    accel_buf: Vec<Vec2f>,
+    accel_x: Vec<f32>,
+    accel_y: Vec<f32>,
     infected_buf: Vec<bool>,
     hidden_buf: Vec<f32>,
 }
 
 impl Simulation {
     pub fn new(count: usize, mut cfg: SimConfig, seed: u32) -> Self {
-        let mut boids = Vec::with_capacity(count);
+        let mut pos_x = Vec::with_capacity(count);
+        let mut pos_y = Vec::with_capacity(count);
+        let mut vel_x = Vec::with_capacity(count);
+        let mut vel_y = Vec::with_capacity(count);
+        let mut state = Vec::with_capacity(count);
+        let mut infected_time = Vec::with_capacity(count);
+
         let mut rng = Lcg::new(seed);
         for _ in 0..count {
             let pos = Vec2f::new(
@@ -174,19 +169,26 @@ impl Simulation {
             let angle = rng.next_f32() * std::f32::consts::TAU;
             let speed = cfg.max_speed * (0.3 + 0.7 * rng.next_f32());
             let vel = Vec2f::new(angle.cos(), angle.sin()).mul(speed);
-            boids.push(Boid {
-                pos,
-                vel,
-                state: HealthState::Susceptible,
-                infected_time: 0.0,
-            });
+            pos_x.push(pos.x);
+            pos_y.push(pos.y);
+            vel_x.push(vel.x);
+            vel_y.push(vel.y);
+            state.push(HealthState::Susceptible);
+            infected_time.push(0.0);
         }
+
         cfg.neighbor_radius = cfg.neighbor_radius.max(1.0);
         cfg.separation_radius = cfg.separation_radius.min(cfg.neighbor_radius).max(0.5);
         cfg.infection_radius = cfg.infection_radius.max(1.0);
         cfg.infectious_period = cfg.infectious_period.max(0.1);
+
         let mut sim = Self {
-            boids,
+            pos_x,
+            pos_y,
+            vel_x,
+            vel_y,
+            state,
+            infected_time,
             grid: SpatialHash::new(cfg.neighbor_radius.max(cfg.infection_radius)),
             cfg,
             rng,
@@ -195,8 +197,9 @@ impl Simulation {
                 NnPolicy::new(FEATURE_SIZE, HIDDEN_SIZE),
                 NnPolicy::new(FEATURE_SIZE, HIDDEN_SIZE),
             ],
-            accel_buf: Vec::new(),
-            infected_buf: Vec::new(),
+            accel_x: vec![0.0; count],
+            accel_y: vec![0.0; count],
+            infected_buf: vec![false; count],
             hidden_buf: vec![0.0; HIDDEN_SIZE],
         };
         for policy in &mut sim.policies {
@@ -242,30 +245,38 @@ impl Simulation {
 
     pub fn step(&mut self, dt: f32) {
         self.rebuild_grid();
-        if self.accel_buf.len() != self.boids.len() {
-            self.accel_buf.resize(self.boids.len(), Vec2f::default());
+
+        if self.accel_x.len() != self.pos_x.len() {
+            self.accel_x.resize(self.pos_x.len(), 0.0);
+            self.accel_y.resize(self.pos_x.len(), 0.0);
         } else {
-            for accel in &mut self.accel_buf {
-                *accel = Vec2f::default();
+            for ax in &mut self.accel_x {
+                *ax = 0.0;
+            }
+            for ay in &mut self.accel_y {
+                *ay = 0.0;
             }
         }
-        if self.infected_buf.len() != self.boids.len() {
-            self.infected_buf.resize(self.boids.len(), false);
+        if self.infected_buf.len() != self.pos_x.len() {
+            self.infected_buf.resize(self.pos_x.len(), false);
         } else {
             for flag in &mut self.infected_buf {
                 *flag = false;
             }
         }
+
         let infect_p = 1.0 - (-self.cfg.infection_beta * dt).exp();
 
-        for i in 0..self.boids.len() {
+        for i in 0..self.pos_x.len() {
             let (inputs, infected_contact) = self.features_for(i);
-            let policy = &self.policies[self.boids[i].state.idx()];
+            let policy = &self.policies[self.state[i].idx()];
             let accel = policy
                 .forward_into(&inputs, &mut self.hidden_buf)
                 .mul(self.cfg.max_force);
-            self.accel_buf[i] = accel.limit(self.cfg.max_force);
-            if self.boids[i].state == HealthState::Susceptible
+            let accel = accel.limit(self.cfg.max_force);
+            self.accel_x[i] = accel.x;
+            self.accel_y[i] = accel.y;
+            if self.state[i] == HealthState::Susceptible
                 && infected_contact
                 && self.rng.next_f32() < infect_p
             {
@@ -273,21 +284,36 @@ impl Simulation {
             }
         }
 
-        for (boid, accel) in self.boids.iter_mut().zip(self.accel_buf.iter().copied()) {
-            boid.vel = boid.vel.add(accel.mul(dt)).limit(self.cfg.max_speed);
-            boid.pos = boid.pos.add(boid.vel.mul(dt));
-            boid.pos = wrap_position(boid.pos, self.cfg.world_size);
+        let max_speed = self.cfg.max_speed;
+        for i in 0..self.pos_x.len() {
+            self.vel_x[i] += self.accel_x[i] * dt;
+            self.vel_y[i] += self.accel_y[i] * dt;
+            let speed_sq = self.vel_x[i] * self.vel_x[i] + self.vel_y[i] * self.vel_y[i];
+            if speed_sq > max_speed * max_speed {
+                let scale = max_speed / speed_sq.sqrt();
+                self.vel_x[i] *= scale;
+                self.vel_y[i] *= scale;
+            }
+
+            self.pos_x[i] += self.vel_x[i] * dt;
+            self.pos_y[i] += self.vel_y[i] * dt;
+            let wrapped = wrap_position(
+                Vec2f::new(self.pos_x[i], self.pos_y[i]),
+                self.cfg.world_size,
+            );
+            self.pos_x[i] = wrapped.x;
+            self.pos_y[i] = wrapped.y;
         }
 
-        for (i, boid) in self.boids.iter_mut().enumerate() {
+        for i in 0..self.pos_x.len() {
             if self.infected_buf[i] {
-                boid.state = HealthState::Infected;
-                boid.infected_time = 0.0;
+                self.state[i] = HealthState::Infected;
+                self.infected_time[i] = 0.0;
             }
-            if boid.state == HealthState::Infected {
-                boid.infected_time += dt;
-                if boid.infected_time >= self.cfg.infectious_period {
-                    boid.state = HealthState::Recovered;
+            if self.state[i] == HealthState::Infected {
+                self.infected_time[i] += dt;
+                if self.infected_time[i] >= self.cfg.infectious_period {
+                    self.state[i] = HealthState::Recovered;
                 }
             }
         }
@@ -295,8 +321,8 @@ impl Simulation {
 
     pub fn counts(&self) -> SirCounts {
         let mut counts = SirCounts::default();
-        for boid in &self.boids {
-            match boid.state {
+        for &state in &self.state {
+            match state {
                 HealthState::Susceptible => counts.susceptible += 1,
                 HealthState::Infected => counts.infected += 1,
                 HealthState::Recovered => counts.recovered += 1,
@@ -313,8 +339,25 @@ impl Simulation {
         self.policies[state.idx()] = policy;
     }
 
+    pub fn boid_count(&self) -> usize {
+        self.pos_x.len()
+    }
+
+    pub fn boid_pos(&self, idx: usize) -> Vec2f {
+        Vec2f::new(self.pos_x[idx], self.pos_y[idx])
+    }
+
+    pub fn boid_vel(&self, idx: usize) -> Vec2f {
+        Vec2f::new(self.vel_x[idx], self.vel_y[idx])
+    }
+
+    pub fn boid_state(&self, idx: usize) -> HealthState {
+        self.state[idx]
+    }
+
     fn features_for(&self, idx: usize) -> ([f32; FEATURE_SIZE], bool) {
-        let boid = self.boids[idx];
+        let boid_pos = Vec2f::new(self.pos_x[idx], self.pos_y[idx]);
+        let boid_vel = Vec2f::new(self.vel_x[idx], self.vel_y[idx]);
         let mut align_sum = Vec2f::default();
         let mut cohesion_sum = Vec2f::default();
         let mut separation_sum = Vec2f::default();
@@ -325,22 +368,23 @@ impl Simulation {
         let mut nearest_infected_dir = Vec2f::default();
         let mut infected_contact = false;
 
-        self.grid.for_each_neighbor(boid.pos, |j| {
+        self.grid.for_each_neighbor(boid_pos, |j| {
             if idx == j {
                 return;
             }
-            let other = self.boids[j];
-            let offset = other.pos.sub(boid.pos);
+            let other_pos = Vec2f::new(self.pos_x[j], self.pos_y[j]);
+            let other_vel = Vec2f::new(self.vel_x[j], self.vel_y[j]);
+            let offset = other_pos.sub(boid_pos);
             let dist = offset.length();
             if dist < self.cfg.neighbor_radius {
-                align_sum = align_sum.add(other.vel);
-                cohesion_sum = cohesion_sum.add(other.pos);
+                align_sum = align_sum.add(other_vel);
+                cohesion_sum = cohesion_sum.add(other_pos);
                 count += 1;
                 if dist < self.cfg.separation_radius && dist > 0.0 {
                     separation_sum = separation_sum.sub(offset.div(dist));
                     sep_count += 1;
                 }
-                if other.state == HealthState::Infected {
+                if self.state[j] == HealthState::Infected {
                     infected_count += 1;
                     if dist < nearest_infected_dist && dist > 0.0 {
                         nearest_infected_dist = dist;
@@ -348,15 +392,15 @@ impl Simulation {
                     }
                 }
             }
-            if other.state == HealthState::Infected && dist < self.cfg.infection_radius {
+            if self.state[j] == HealthState::Infected && dist < self.cfg.infection_radius {
                 infected_contact = true;
             }
         });
 
         let mut inputs = [0.0; FEATURE_SIZE];
-        let speed = boid.vel.length();
-        inputs[0] = boid.vel.x / self.cfg.max_speed;
-        inputs[1] = boid.vel.y / self.cfg.max_speed;
+        let speed = boid_vel.length();
+        inputs[0] = boid_vel.x / self.cfg.max_speed;
+        inputs[1] = boid_vel.y / self.cfg.max_speed;
         inputs[2] = (speed / self.cfg.max_speed).clamp(0.0, 1.0);
 
         if count > 0 {
@@ -364,7 +408,7 @@ impl Simulation {
             inputs[3] = align.x;
             inputs[4] = align.y;
             let center = cohesion_sum.div(count as f32);
-            let cohesion = center.sub(boid.pos).div(self.cfg.neighbor_radius);
+            let cohesion = center.sub(boid_pos).div(self.cfg.neighbor_radius);
             inputs[5] = cohesion.x;
             inputs[6] = cohesion.y;
         }
@@ -395,18 +439,18 @@ impl Simulation {
 
     fn rebuild_grid(&mut self) {
         self.grid.clear();
-        for (i, b) in self.boids.iter().enumerate() {
-            self.grid.insert(i, b.pos);
+        for i in 0..self.pos_x.len() {
+            self.grid
+                .insert(i, Vec2f::new(self.pos_x[i], self.pos_y[i]));
         }
     }
 
     fn seed_infections(&mut self) {
-        let count = self.cfg.initial_infected.min(self.boids.len());
+        let count = self.cfg.initial_infected.min(self.pos_x.len());
         for _ in 0..count {
-            let idx = (self.rng.next_f32() * self.boids.len() as f32) as usize;
-            let boid = &mut self.boids[idx];
-            boid.state = HealthState::Infected;
-            boid.infected_time = 0.0;
+            let idx = (self.rng.next_f32() * self.pos_x.len() as f32) as usize;
+            self.state[idx] = HealthState::Infected;
+            self.infected_time[idx] = 0.0;
         }
     }
 }

@@ -82,21 +82,9 @@ impl Knob {
         draw_line(self.center.x, self.center.y, tip.x, tip.y, 2.5, needle);
 
         let label_y = self.center.y + self.radius + 12.0;
-        draw_text(
-            self.label,
-            self.center.x - self.radius,
-            label_y,
-            16.0,
-            needle,
-        );
+        draw_text(self.label, self.center.x - self.radius, label_y, 16.0, needle);
         let value_text = format!("{:.2}", self.value);
-        draw_text(
-            &value_text,
-            self.center.x - self.radius,
-            label_y + 16.0,
-            14.0,
-            ring,
-        );
+        draw_text(&value_text, self.center.x - self.radius, label_y + 16.0, 14.0, ring);
     }
 }
 
@@ -246,19 +234,22 @@ async fn main() {
 
         clear_background(Color::from_rgba(8, 10, 14, 255));
 
-        for boid in &sim.boids {
-            let dir = boid.vel.normalize();
-            let dir = if dir.length() > 0.0 {
-                dir
+        for i in 0..sim.boid_count() {
+            let pos = sim.boid_pos(i);
+            let vel = sim.boid_vel(i);
+            let mut dir = vel;
+            let len = (dir.x * dir.x + dir.y * dir.y).sqrt();
+            if len > 0.0 {
+                dir = dir.div(len);
             } else {
-                Vec2f::new(1.0, 0.0)
-            };
+                dir = Vec2f::new(1.0, 0.0);
+            }
             let perp = Vec2f::new(-dir.y, dir.x);
-            let tip = boid.pos.add(dir.mul(6.0));
-            let left = boid.pos.sub(dir.mul(2.5)).add(perp.mul(3.0));
-            let right = boid.pos.sub(dir.mul(2.5)).sub(perp.mul(3.0));
+            let tip = pos.add(dir.mul(6.0));
+            let left = pos.sub(dir.mul(2.5)).add(perp.mul(3.0));
+            let right = pos.sub(dir.mul(2.5)).sub(perp.mul(3.0));
 
-            let color = match boid.state {
+            let color = match sim.boid_state(i) {
                 HealthState::Susceptible => Color::from_rgba(220, 240, 255, 255),
                 HealthState::Infected => Color::from_rgba(255, 90, 90, 255),
                 HealthState::Recovered => Color::from_rgba(120, 220, 140, 255),
@@ -302,7 +293,7 @@ async fn main() {
             1.0,
             Color::from_rgba(40, 60, 80, 200),
         );
-        graph.draw(graph_origin, graph_size, sim.boids.len());
+        graph.draw(graph_origin, graph_size, sim.boid_count());
 
         next_frame().await;
     }
