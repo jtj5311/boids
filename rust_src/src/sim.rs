@@ -313,10 +313,6 @@ impl Simulation {
         self.policies[state.idx()] = policy;
     }
 
-    pub fn policy_param_count(&self) -> usize {
-        self.policies[0].param_count()
-    }
-
     fn features_for(&self, idx: usize) -> ([f32; FEATURE_SIZE], bool) {
         let boid = self.boids[idx];
         let mut align_sum = Vec2f::default();
@@ -453,7 +449,7 @@ impl NnPolicy {
         }
     }
 
-    pub fn randomize(&mut self, rng: &mut Lcg, scale: f32) {
+    fn randomize(&mut self, rng: &mut Lcg, scale: f32) {
         for w in &mut self.w1 {
             *w = (rng.next_f32() * 2.0 - 1.0) * scale;
         }
@@ -466,11 +462,6 @@ impl NnPolicy {
         for b in &mut self.b2 {
             *b = (rng.next_f32() * 2.0 - 1.0) * scale;
         }
-    }
-
-    pub fn forward(&self, input: &[f32; FEATURE_SIZE]) -> Vec2f {
-        let mut hidden = vec![0.0; self.hidden_size];
-        self.forward_into(input, &mut hidden)
     }
 
     pub fn forward_into(&self, input: &[f32; FEATURE_SIZE], hidden: &mut [f32]) -> Vec2f {

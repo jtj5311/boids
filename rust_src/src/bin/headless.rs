@@ -1,3 +1,4 @@
+#[allow(dead_code)]
 #[path = "../sim.rs"]
 mod sim;
 
