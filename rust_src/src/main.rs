@@ -3,7 +3,7 @@ use std::f32::consts::PI;
 
 mod sim;
 
-use sim::{HealthState, SimConfig, Simulation, Vec2f};
+use sim::{HealthState, SimConfig, Simulation, SirCounts, Vec2f};
 
 struct Knob {
     label: &'static str,
@@ -13,6 +13,84 @@ struct Knob {
     center: Vec2f,
     radius: f32,
     dragging: bool,
+}
+
+struct SirGraph {
+    history: Vec<SirCounts>,
+    max_len: usize,
+}
+
+impl SirGraph {
+    fn new(max_len: usize) -> Self {
+        Self {
+            history: Vec::with_capacity(max_len),
+            max_len,
+        }
+    }
+
+    fn push(&mut self, counts: SirCounts) {
+        if self.history.len() == self.max_len {
+            self.history.remove(0);
+        }
+        self.history.push(counts);
+    }
+
+    fn draw(&self, origin: Vec2f, size: Vec2f, total: usize) {
+        if self.history.len() < 2 || total == 0 {
+            return;
+        }
+        let total_f = total as f32;
+        let mut prev_s = self.point(0, origin, size, total_f, |c| c.susceptible as f32);
+        let mut prev_i = self.point(0, origin, size, total_f, |c| c.infected as f32);
+        let mut prev_r = self.point(0, origin, size, total_f, |c| c.recovered as f32);
+        for idx in 1..self.history.len() {
+            let cur_s = self.point(idx, origin, size, total_f, |c| c.susceptible as f32);
+            let cur_i = self.point(idx, origin, size, total_f, |c| c.infected as f32);
+            let cur_r = self.point(idx, origin, size, total_f, |c| c.recovered as f32);
+            draw_line(
+                prev_s.x,
+                prev_s.y,
+                cur_s.x,
+                cur_s.y,
+                2.0,
+                Color::from_rgba(200, 220, 255, 255),
+            );
+            draw_line(
+                prev_i.x,
+                prev_i.y,
+                cur_i.x,
+                cur_i.y,
+                2.0,
+                Color::from_rgba(255, 90, 90, 255),
+            );
+            draw_line(
+                prev_r.x,
+                prev_r.y,
+                cur_r.x,
+                cur_r.y,
+                2.0,
+                Color::from_rgba(120, 220, 140, 255),
+            );
+            prev_s = cur_s;
+            prev_i = cur_i;
+            prev_r = cur_r;
+        }
+    }
+
+    fn point(
+        &self,
+        idx: usize,
+        origin: Vec2f,
+        size: Vec2f,
+        total: f32,
+        f: impl Fn(&SirCounts) -> f32,
+    ) -> Vec2f {
+        let t = idx as f32 / (self.max_len.saturating_sub(1).max(1) as f32);
+        let x = origin.x + t * size.x;
+        let v = f(&self.history[idx]) / total;
+        let y = origin.y + size.y - v * size.y;
+        Vec2f::new(x, y)
+    }
 }
 
 impl Knob {
@@ -82,9 +160,21 @@ impl Knob {
         draw_line(self.center.x, self.center.y, tip.x, tip.y, 2.5, needle);
 
         let label_y = self.center.y + self.radius + 12.0;
-        draw_text(self.label, self.center.x - self.radius, label_y, 16.0, needle);
+        draw_text(
+            self.label,
+            self.center.x - self.radius,
+            label_y,
+            16.0,
+            needle,
+        );
         let value_text = format!("{:.2}", self.value);
-        draw_text(&value_text, self.center.x - self.radius, label_y + 16.0, 14.0, ring);
+        draw_text(
+            &value_text,
+            self.center.x - self.radius,
+            label_y + 16.0,
+            14.0,
+            ring,
+        );
     }
 }
 
@@ -104,19 +194,30 @@ async fn main() {
         infectious_period: 6.0,
         initial_infected: 8,
     };
-    let mut sim = Simulation::new(2400, cfg, 1337);
+    let mut seed = 1337u32;
+    let num_count = 9600;
+    let mut sim = Simulation::new(num_count, cfg, seed);
     let mut knobs = vec![
         Knob::new("Align", 1.0, 0.0, 3.0, Vec2f::new(70.0, 70.0), 28.0),
         Knob::new("Cohere", 0.8, 0.0, 3.0, Vec2f::new(150.0, 70.0), 28.0),
         Knob::new("Separate", 1.4, 0.0, 3.0, Vec2f::new(230.0, 70.0), 28.0),
         Knob::new("N Radius", 60.0, 20.0, 140.0, Vec2f::new(70.0, 160.0), 28.0),
         Knob::new("S Radius", 22.0, 5.0, 80.0, Vec2f::new(150.0, 160.0), 28.0),
-        Knob::new("Max Spd", 160.0, 40.0, 320.0, Vec2f::new(230.0, 160.0), 28.0),
+        Knob::new(
+            "Max Spd",
+            160.0,
+            40.0,
+            320.0,
+            Vec2f::new(230.0, 160.0),
+            28.0,
+        ),
         Knob::new("Max F", 80.0, 10.0, 200.0, Vec2f::new(310.0, 160.0), 28.0),
         Knob::new("Inf R", 18.0, 4.0, 60.0, Vec2f::new(70.0, 250.0), 28.0),
         Knob::new("Beta", 1.2, 0.0, 5.0, Vec2f::new(150.0, 250.0), 28.0),
         Knob::new("Inf T", 6.0, 1.0, 20.0, Vec2f::new(230.0, 250.0), 28.0),
     ];
+
+    let mut graph = SirGraph::new(360);
 
     loop {
         let dt = get_frame_time().min(0.05);
@@ -137,6 +238,26 @@ async fn main() {
         let infection_beta = knobs[8].value;
         let infectious_period = knobs[9].value;
 
+        if is_key_pressed(KeyCode::Enter) {
+            let cfg = SimConfig {
+                world_size: Vec2f::new(screen_width(), screen_height()),
+                max_speed,
+                max_force,
+                neighbor_radius,
+                separation_radius,
+                weight_align,
+                weight_cohesion,
+                weight_separation,
+                infection_radius,
+                infection_beta,
+                infectious_period,
+                initial_infected: 8,
+            };
+            seed = seed.wrapping_add(1);
+            sim = Simulation::new(num_count, cfg, seed);
+            graph = SirGraph::new(360);
+        }
+
         sim.set_params(
             neighbor_radius,
             separation_radius,
@@ -148,6 +269,8 @@ async fn main() {
         );
         sim.set_infection_params(infection_radius, infection_beta, infectious_period);
         sim.step(dt);
+        let counts = sim.counts();
+        graph.push(counts);
 
         clear_background(Color::from_rgba(8, 10, 14, 255));
 
@@ -189,6 +312,25 @@ async fn main() {
         for knob in &knobs {
             knob.draw();
         }
+
+        let graph_origin = Vec2f::new(380.0, 24.0);
+        let graph_size = Vec2f::new(300.0, 120.0);
+        draw_rectangle(
+            graph_origin.x - 8.0,
+            graph_origin.y - 8.0,
+            graph_size.x + 16.0,
+            graph_size.y + 16.0,
+            Color::from_rgba(10, 12, 18, 180),
+        );
+        draw_rectangle_lines(
+            graph_origin.x - 8.0,
+            graph_origin.y - 8.0,
+            graph_size.x + 16.0,
+            graph_size.y + 16.0,
+            1.0,
+            Color::from_rgba(40, 60, 80, 200),
+        );
+        graph.draw(graph_origin, graph_size, sim.boids.len());
 
         next_frame().await;
     }

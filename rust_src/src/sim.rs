@@ -141,6 +141,13 @@ pub struct Simulation {
     rng: Lcg,
 }
 
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SirCounts {
+    pub susceptible: usize,
+    pub infected: usize,
+    pub recovered: usize,
+}
+
 impl Simulation {
     pub fn new(count: usize, mut cfg: SimConfig, seed: u32) -> Self {
         let mut boids = Vec::with_capacity(count);
@@ -303,6 +310,18 @@ impl Simulation {
                 }
             }
         }
+    }
+
+    pub fn counts(&self) -> SirCounts {
+        let mut counts = SirCounts::default();
+        for boid in &self.boids {
+            match boid.state {
+                HealthState::Susceptible => counts.susceptible += 1,
+                HealthState::Infected => counts.infected += 1,
+                HealthState::Recovered => counts.recovered += 1,
+            }
+        }
+        counts
     }
 
     fn rebuild_grid(&mut self) {
