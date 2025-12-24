@@ -6,11 +6,13 @@ mod sir;
 mod boid;
 mod simulation;
 mod visualization;
+mod spatial;
 
 use constants::*;
 use sir::{count_disease_states, process_infections, DiseaseModel};
 use simulation::{SimParams, initialize_boids};
 use visualization::PopulationHistory;
+use spatial::SpatialGrid;
 
 fn window_conf() -> Conf {
     Conf {
@@ -26,7 +28,7 @@ fn window_conf() -> Conf {
 async fn main() {
     let mut params = SimParams::default();
     let mut boids = initialize_boids(params.num_boids, params.initial_infected);
-    let mut neighbor_data = Vec::new();
+    let mut spatial_grid = SpatialGrid::new(50.0); // Cell size based on perception radius
     let mut history = PopulationHistory::new();
     let mut frame_counter = 0;
 
@@ -55,7 +57,7 @@ async fn main() {
                                 ui.vertical(|ui| {
                                     ui.label("Number of Boids");
                                     let old_count = params.num_boids;
-                                    ui.add(egui::Slider::new(&mut params.num_boids, 10..=500));
+                                    ui.add(egui::Slider::new(&mut params.num_boids, 10..=3000));
                                     if params.num_boids != old_count {
                                         boid_count_changed = true;
                                     }
@@ -138,16 +140,23 @@ async fn main() {
             frame_counter = 0;
         }
 
-        neighbor_data.clear();
-        for boid in &boids {
-            neighbor_data.push((boid.position, boid.velocity));
+        // Build spatial grid for efficient neighbor queries
+        spatial_grid.clear();
+        for (i, boid) in boids.iter().enumerate() {
+            spatial_grid.insert(i, boid.position);
         }
 
-        process_infections(&mut boids, &params);
+        process_infections(&mut boids, &params, &spatial_grid);
 
-        for boid in &mut boids {
-            boid.update(&neighbor_data, &params);
-            boid.update_disease_state(&params, dt);
+        // Update each boid using spatial queries for neighbors
+        for i in 0..boids.len() {
+            let neighbors = spatial_grid.query_nearby(
+                boids[i].position,
+                params.perception_radius,
+                &boids
+            );
+            boids[i].update(&neighbors, &params);
+            boids[i].update_disease_state(&params, dt);
         }
 
         for boid in &boids {

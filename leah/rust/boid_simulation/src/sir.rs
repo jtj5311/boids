@@ -1,6 +1,7 @@
 use macroquad::prelude::rand;
 use crate::boid::Boid;
 use crate::simulation::SimParams;
+use crate::spatial::SpatialGrid;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum DiseaseState {
@@ -17,12 +18,18 @@ pub enum DiseaseModel {
     SEIR,
 }
 
-pub fn process_infections(boids: &mut [Boid], params: &SimParams) {
+pub fn process_infections(boids: &mut [Boid], params: &SimParams, spatial_grid: &SpatialGrid) {
     let mut new_infections = Vec::new();
 
     for i in 0..boids.len() {
         if boids[i].disease_state == DiseaseState::Infected {
-            for j in 0..boids.len() {
+            // Only check nearby boids using spatial grid
+            let nearby_indices = spatial_grid.query_nearby_indices(
+                boids[i].position,
+                params.infection_radius
+            );
+
+            for j in nearby_indices {
                 if i != j && boids[j].disease_state == DiseaseState::Susceptible {
                     let dist = (boids[i].position - boids[j].position).length();
                     if dist < params.infection_radius {
