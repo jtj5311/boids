@@ -5,12 +5,14 @@ use crate::constants::SCREEN_WIDTH;
 
 pub struct UIState {
     pub show_graph: bool,
+    pub params_collapsed: bool,
 }
 
 impl Default for UIState {
     fn default() -> Self {
         Self {
             show_graph: true,
+            params_collapsed: false,
         }
     }
 }
@@ -34,15 +36,30 @@ impl Default for UIControls {
 pub fn render_parameter_panel(
     egui_ctx: &egui::Context,
     params: &mut SimParams,
+    ui_state: &mut UIState,
 ) -> UIControls {
     let mut controls = UIControls::default();
+
+    let mut open = !ui_state.params_collapsed;
 
     egui::Window::new("Simulation Parameters")
         .default_pos(egui::pos2(10.0, 10.0))
         .default_width(SCREEN_WIDTH - 20.0)
-        .collapsible(true)
+        .collapsible(false)
         .resizable(false)
+        .open(&mut open)
         .show(egui_ctx, |ui| {
+            // Custom collapse button
+            ui.horizontal(|ui| {
+                ui.heading("Parameters");
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button("X").clicked() {
+                        ui_state.params_collapsed = true;
+                    }
+                });
+            });
+
+            ui.separator();
             // Boid Parameters Section with grey background
             egui::Frame::new()
                 .fill(egui::Color32::from_rgb(60, 60, 60))
@@ -51,9 +68,10 @@ pub fn render_parameter_panel(
                 .show(ui, |ui| {
                     // Apply custom style for sliders in this section
                     let mut style = (*ui.ctx().style()).clone();
-                    style.visuals.widgets.inactive.bg_stroke.color = egui::Color32::from_rgb(30, 30, 30);
-                    style.visuals.widgets.hovered.bg_stroke.color = egui::Color32::from_rgb(20, 20, 20);
-                    style.visuals.widgets.active.bg_stroke.color = egui::Color32::from_rgb(10, 10, 10);
+                    // Darken the slider rail background
+                    style.visuals.widgets.inactive.bg_fill = egui::Color32::from_rgb(30, 30, 30);
+                    style.visuals.widgets.hovered.bg_fill = egui::Color32::from_rgb(40, 40, 40);
+                    style.visuals.widgets.active.bg_fill = egui::Color32::from_rgb(50, 50, 50);
                     ui.ctx().set_style(style);
 
                     ui.heading("Boid Parameters");
@@ -140,17 +158,44 @@ pub fn render_parameter_panel(
     controls
 }
 
-pub fn render_graph_toggle(
+pub fn render_collapsed_params_button(
     egui_ctx: &egui::Context,
     ui_state: &mut UIState,
 ) {
-    egui::Window::new("Graph Control")
-        .fixed_pos(egui::pos2(10.0, 180.0))
-        .fixed_size(egui::vec2(150.0, 50.0))
-        .collapsible(false)
+    if ui_state.params_collapsed {
+        egui::Window::new("##collapsed_params")
+            .title_bar(false)
+            .fixed_pos(egui::pos2(10.0, 10.0))
+            .fixed_size(egui::vec2(50.0, 40.0))
+            .frame(egui::Frame::new()
+                .fill(egui::Color32::from_rgb(60, 60, 60))
+                .corner_radius(4.0))
+            .resizable(false)
+            .show(egui_ctx, |ui| {
+                if ui.button("≡").clicked() {
+                    ui_state.params_collapsed = false;
+                }
+            });
+    }
+}
+
+pub fn render_graph_toggle(
+    egui_ctx: &egui::Context,
+    ui_state: &mut UIState,
+    graph_x: f32,
+    graph_y: f32,
+) {
+    let button_text = if ui_state.show_graph { "X" } else { "≡" };
+
+    egui::Window::new("##graph_toggle")
+        .title_bar(false)
+        .fixed_pos(egui::pos2(graph_x + 350.0, graph_y + 5.0))
+        .fixed_size(egui::vec2(40.0, 30.0))
+        .frame(egui::Frame::new()
+            .fill(egui::Color32::from_rgba_unmultiplied(40, 40, 40, 200))
+            .corner_radius(4.0))
         .resizable(false)
         .show(egui_ctx, |ui| {
-            let button_text = if ui_state.show_graph { "Hide Graph" } else { "Show Graph" };
             if ui.button(button_text).clicked() {
                 ui_state.show_graph = !ui_state.show_graph;
             }

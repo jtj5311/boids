@@ -13,7 +13,7 @@ use sir::{count_disease_states, process_infections, DiseaseModel};
 use simulation::{SimParams, initialize_boids};
 use visualization::PopulationHistory;
 use spatial::SpatialGrid;
-use ui::{UIState, render_parameter_panel, render_graph_toggle};
+use ui::{UIState, render_parameter_panel, render_graph_toggle, render_collapsed_params_button};
 
 fn window_conf() -> Conf {
     Conf {
@@ -43,9 +43,13 @@ async fn main() {
         let mut boid_count_changed = false;
         let mut model_changed = false;
 
+        let graph_x = SCREEN_WIDTH - GRAPH_WIDTH - 10.0;
+        let graph_y = SCREEN_HEIGHT - GRAPH_HEIGHT - 10.0;
+
         egui_macroquad::ui(|egui_ctx| {
-            render_graph_toggle(egui_ctx, &mut ui_state);
-            let controls = render_parameter_panel(egui_ctx, &mut params);
+            render_graph_toggle(egui_ctx, &mut ui_state, graph_x, graph_y);
+            let controls = render_parameter_panel(egui_ctx, &mut params, &mut ui_state);
+            render_collapsed_params_button(egui_ctx, &mut ui_state);
             should_restart = controls.should_restart;
             boid_count_changed = controls.boid_count_changed;
             model_changed = controls.model_changed;
