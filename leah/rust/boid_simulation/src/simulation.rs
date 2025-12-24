@@ -1,6 +1,6 @@
 use macroquad::prelude::rand;
 use crate::boid::Boid;
-use crate::constants::{SCREEN_WIDTH, SCREEN_HEIGHT, UI_HEIGHT, GRAPH_HEIGHT};
+use crate::constants::{SCREEN_WIDTH, SCREEN_HEIGHT};
 use crate::sir::{DiseaseState, DiseaseModel};
 
 pub struct SimParams {
@@ -45,7 +45,7 @@ pub fn initialize_boids(num_boids: usize, initial_infected: usize) -> Vec<Boid> 
     let mut boids = Vec::new();
     let grid_size = (num_boids as f32).sqrt().ceil() as usize;
     let cell_width = SCREEN_WIDTH / grid_size as f32;
-    let cell_height = (SCREEN_HEIGHT - UI_HEIGHT - GRAPH_HEIGHT) / grid_size as f32;
+    let cell_height = SCREEN_HEIGHT / grid_size as f32;
 
     let mut count = 0;
     'outer: for i in 0..grid_size {
@@ -55,7 +55,7 @@ pub fn initialize_boids(num_boids: usize, initial_infected: usize) -> Vec<Boid> 
             }
 
             let x = (i as f32 + rand::gen_range(0.2, 0.8)) * cell_width;
-            let y = UI_HEIGHT + (j as f32 + rand::gen_range(0.2, 0.8)) * cell_height;
+            let y = (j as f32 + rand::gen_range(0.2, 0.8)) * cell_height;
 
             let disease_state = if count < initial_infected {
                 DiseaseState::Infected

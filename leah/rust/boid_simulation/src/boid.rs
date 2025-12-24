@@ -1,6 +1,6 @@
 use macroquad::prelude::*;
 use macroquad::prelude::rand;
-use crate::constants::{SCREEN_WIDTH, SCREEN_HEIGHT, UI_HEIGHT};
+use crate::constants::{SCREEN_WIDTH, SCREEN_HEIGHT};
 use crate::simulation::SimParams;
 use crate::sir::{DiseaseState, DiseaseModel};
 
@@ -78,17 +78,18 @@ impl Boid {
         self.velocity = limit_vec(self.velocity, params.max_speed);
         self.position += self.velocity;
 
+        // Wrap around entire screen (boids go behind UI elements)
         if self.position.x < 0.0 {
             self.position.x += SCREEN_WIDTH;
         }
         if self.position.x > SCREEN_WIDTH {
             self.position.x -= SCREEN_WIDTH;
         }
-        if self.position.y < UI_HEIGHT {
-            self.position.y += SCREEN_HEIGHT - UI_HEIGHT;
+        if self.position.y < 0.0 {
+            self.position.y += SCREEN_HEIGHT;
         }
         if self.position.y > SCREEN_HEIGHT {
-            self.position.y -= SCREEN_HEIGHT - UI_HEIGHT;
+            self.position.y -= SCREEN_HEIGHT;
         }
     }
 
