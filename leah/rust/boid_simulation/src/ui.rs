@@ -40,20 +40,22 @@ pub fn render_parameter_panel(
 ) -> UIControls {
     let mut controls = UIControls::default();
 
-    let mut open = !ui_state.params_collapsed;
+    // Only show if not collapsed
+    if ui_state.params_collapsed {
+        return controls;
+    }
 
-    egui::Window::new("Simulation Parameters")
+    egui::Window::new("##params")
+        .title_bar(false)
         .default_pos(egui::pos2(10.0, 10.0))
         .default_width(SCREEN_WIDTH - 20.0)
-        .collapsible(false)
         .resizable(false)
-        .open(&mut open)
         .show(egui_ctx, |ui| {
-            // Custom collapse button
+            // Custom title bar with collapse button
             ui.horizontal(|ui| {
                 ui.heading("Parameters");
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("X").clicked() {
+                    if ui.button("X [p]").clicked() {
                         ui_state.params_collapsed = true;
                     }
                 });
@@ -166,13 +168,13 @@ pub fn render_collapsed_params_button(
         egui::Window::new("##collapsed_params")
             .title_bar(false)
             .fixed_pos(egui::pos2(10.0, 10.0))
-            .fixed_size(egui::vec2(50.0, 40.0))
+            .fixed_size(egui::vec2(65.0, 40.0))
             .frame(egui::Frame::new()
                 .fill(egui::Color32::from_rgb(60, 60, 60))
                 .corner_radius(4.0))
             .resizable(false)
             .show(egui_ctx, |ui| {
-                if ui.button("≡").clicked() {
+                if ui.button("≡ [p]").clicked() {
                     ui_state.params_collapsed = false;
                 }
             });
@@ -185,12 +187,19 @@ pub fn render_graph_toggle(
     graph_x: f32,
     graph_y: f32,
 ) {
-    let button_text = if ui_state.show_graph { "X" } else { "≡" };
+    let button_text = if ui_state.show_graph { "X [g]" } else { "≡ [g]" };
+
+    // Position at top of graph when shown, bottom-right corner when hidden
+    let (pos_x, pos_y) = if ui_state.show_graph {
+        (graph_x + 340.0, graph_y + 5.0)
+    } else {
+        (graph_x + 340.0, graph_y + 115.0) // Bottom right of screen
+    };
 
     egui::Window::new("##graph_toggle")
         .title_bar(false)
-        .fixed_pos(egui::pos2(graph_x + 350.0, graph_y + 5.0))
-        .fixed_size(egui::vec2(40.0, 30.0))
+        .fixed_pos(egui::pos2(pos_x, pos_y))
+        .fixed_size(egui::vec2(55.0, 30.0))
         .frame(egui::Frame::new()
             .fill(egui::Color32::from_rgba_unmultiplied(40, 40, 40, 200))
             .corner_radius(4.0))

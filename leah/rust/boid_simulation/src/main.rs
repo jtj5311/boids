@@ -43,6 +43,14 @@ async fn main() {
         let mut boid_count_changed = false;
         let mut model_changed = false;
 
+        // Handle keyboard shortcuts
+        if is_key_pressed(KeyCode::P) {
+            ui_state.params_collapsed = !ui_state.params_collapsed;
+        }
+        if is_key_pressed(KeyCode::G) {
+            ui_state.show_graph = !ui_state.show_graph;
+        }
+
         let graph_x = SCREEN_WIDTH - GRAPH_WIDTH - 10.0;
         let graph_y = SCREEN_HEIGHT - GRAPH_HEIGHT - 10.0;
 
