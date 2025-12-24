@@ -42,6 +42,8 @@ pub fn process_infections(boids: &mut [Boid], params: &SimParams) {
             DiseaseModel::SEIR => DiseaseState::Exposed,
             DiseaseModel::SIR | DiseaseModel::SIS => DiseaseState::Infected,
         };
+        // Reset the timer when changing disease state
+        boids[idx].state_timer = 0.0;
     }
 }
 
