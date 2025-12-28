@@ -509,22 +509,20 @@ impl NnPolicy {
     }
 
     pub fn forward_into(&self, input: &[f32; FEATURE_SIZE], hidden: &mut [f32]) -> Vec2f {
+        let input_slice = &input[..self.input_size];
         for (h, slot) in hidden.iter_mut().enumerate() {
             let mut acc = self.b1[h];
             let row = h * self.input_size;
-            for i in 0..self.input_size {
-                acc += self.w1[row + i] * input[i];
-            }
+            acc += dot_simd(&self.w1[row..row + self.input_size], input_slice);
             *slot = acc.tanh();
         }
 
+        let hidden_slice = &hidden[..self.hidden_size];
         let mut out = [0.0; 2];
         for o in 0..2 {
             let mut acc = self.b2[o];
             let row = o * self.hidden_size;
-            for h in 0..self.hidden_size {
-                acc += self.w2[row + h] * hidden[h];
-            }
+            acc += dot_simd(&self.w2[row..row + self.hidden_size], hidden_slice);
             out[o] = acc.tanh();
         }
         Vec2f::new(out[0], out[1])
@@ -569,6 +567,35 @@ impl NnPolicy {
             b2,
         }
     }
+}
+
+#[cfg(feature = "simd")]
+fn dot_simd(weights: &[f32], input: &[f32]) -> f32 {
+    use std::simd::prelude::SimdFloat;
+    use std::simd::Simd;
+    const LANES: usize = 8;
+    let mut i = 0;
+    let mut sum = Simd::<f32, LANES>::splat(0.0);
+    while i + LANES <= weights.len() {
+        let w = Simd::from_slice(&weights[i..i + LANES]);
+        let x = Simd::from_slice(&input[i..i + LANES]);
+        sum += w * x;
+        i += LANES;
+    }
+    let mut acc = sum.reduce_sum();
+    for j in i..weights.len() {
+        acc += weights[j] * input[j];
+    }
+    acc
+}
+
+#[cfg(not(feature = "simd"))]
+fn dot_simd(weights: &[f32], input: &[f32]) -> f32 {
+    let mut acc = 0.0;
+    for i in 0..weights.len() {
+        acc += weights[i] * input[i];
+    }
+    acc
 }
 
 struct Lcg {

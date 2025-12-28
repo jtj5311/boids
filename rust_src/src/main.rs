@@ -1,3 +1,5 @@
+#![cfg_attr(feature = "simd", feature(portable_simd))]
+
 use macroquad::prelude::*;
 use std::f32::consts::PI;
 
