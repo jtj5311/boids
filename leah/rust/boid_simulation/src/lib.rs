@@ -20,7 +20,8 @@ fn window_conf() -> Conf {
         window_title: "Boid Simulation with Disease Models - Press Enter to Restart".to_owned(),
         window_width: SCREEN_WIDTH as i32,
         window_height: SCREEN_HEIGHT as i32,
-        window_resizable: false,
+        window_resizable: true,
+        high_dpi: true,
         ..Default::default()
     }
 }

@@ -51,12 +51,15 @@ pub fn render_parameter_panel(
         .default_width(SCREEN_WIDTH - 20.0)
         .resizable(false)
         .show(egui_ctx, |ui| {
-            // Custom title bar with collapse button
+            // Custom title bar with collapse button and restart
             ui.horizontal(|ui| {
                 ui.heading("Parameters");
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.button("X [p]").clicked() {
                         ui_state.params_collapsed = true;
+                    }
+                    if ui.button("Restart").clicked() {
+                        controls.should_restart = true;
                     }
                 });
             });
@@ -147,12 +150,6 @@ pub fn render_parameter_panel(
                                 ui.add(egui::Slider::new(&mut params.incubation_time, 1.0..=20.0));
                             });
                         }
-                        ui.vertical(|ui| {
-                            ui.label("");
-                            if ui.button("Restart").clicked() {
-                                controls.should_restart = true;
-                            }
-                        });
                     });
                 });
         });
