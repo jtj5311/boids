@@ -514,7 +514,7 @@ impl NnPolicy {
             let mut acc = self.b1[h];
             let row = h * self.input_size;
             acc += dot_simd(&self.w1[row..row + self.input_size], input_slice);
-            *slot = acc.tanh();
+            *slot = fast_tanh(acc);
         }
 
         let hidden_slice = &hidden[..self.hidden_size];
@@ -523,7 +523,7 @@ impl NnPolicy {
             let mut acc = self.b2[o];
             let row = o * self.hidden_size;
             acc += dot_simd(&self.w2[row..row + self.hidden_size], hidden_slice);
-            out[o] = acc.tanh();
+            out[o] = fast_tanh(acc);
         }
         Vec2f::new(out[0], out[1])
     }
@@ -596,6 +596,13 @@ fn dot_simd(weights: &[f32], input: &[f32]) -> f32 {
         acc += weights[i] * input[i];
     }
     acc
+}
+
+#[inline(always)]
+fn fast_tanh(x: f32) -> f32 {
+    let x = x.clamp(-3.0, 3.0);
+    let x2 = x * x;
+    x * (27.0 + x2) / (27.0 + 9.0 * x2)
 }
 
 struct Lcg {
