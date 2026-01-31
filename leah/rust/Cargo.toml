@@ -1,0 +1,11 @@
+[workspace]
+members = ["boid_simulation", "boid_playground"]
+resolver = "2"
+
+# Preserve the release profile from boid_simulation for WASM builds
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
