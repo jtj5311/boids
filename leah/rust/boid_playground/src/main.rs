@@ -90,7 +90,7 @@ async fn main() {
             render_graph_toggle(egui_ctx, &mut ui_state, graph_x, graph_y);
             let controls = render_parameter_panel(egui_ctx, &mut params, &mut ui_state);
             render_collapsed_params_button(egui_ctx, &mut ui_state);
-            render_my_boid_panel(egui_ctx, &mut my_boid_params, &mut my_boid_ui_state);
+            render_my_boid_panel(egui_ctx, &mut my_boid_params, &mut my_boid_ui_state, params.model);
             render_collapsed_my_boid_button(egui_ctx, &mut my_boid_ui_state);
             should_restart = controls.should_restart;
             boid_count_changed = controls.boid_count_changed;

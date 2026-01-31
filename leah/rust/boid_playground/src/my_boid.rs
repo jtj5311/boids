@@ -14,6 +14,11 @@ pub struct MyBoidParams {
     pub cohesion_weight: f32,
     pub max_speed: f32,
     pub max_force: f32,
+    // Disease-state affinity: positive = attract, negative = repel
+    pub affinity_susceptible: f32,
+    pub affinity_exposed: f32,
+    pub affinity_infected: f32,
+    pub affinity_recovered: f32,
 }
 
 impl Default for MyBoidParams {
@@ -26,6 +31,10 @@ impl Default for MyBoidParams {
             cohesion_weight: 1.0,
             max_speed: 2.5,
             max_force: 0.1,
+            affinity_susceptible: 0.0,
+            affinity_exposed: 0.0,
+            affinity_infected: 0.0,
+            affinity_recovered: 0.0,
         }
     }
 }
@@ -116,22 +125,34 @@ impl MyBoid {
         }
     }
 
+    fn affinity_for(state: &DiseaseState, params: &MyBoidParams) -> f32 {
+        match state {
+            DiseaseState::Susceptible => params.affinity_susceptible,
+            DiseaseState::Exposed => params.affinity_exposed,
+            DiseaseState::Infected => params.affinity_infected,
+            DiseaseState::Recovered => params.affinity_recovered,
+        }
+    }
+
     pub fn update(&mut self, boids: &[Boid], spatial_grid: &SpatialGrid, params: &MyBoidParams) {
-        let neighbors = spatial_grid.query_nearby(
+        let nearby_indices = spatial_grid.query_nearby_indices(
             self.position,
             params.perception_radius,
-            boids,
         );
 
         let mut separation = vec2(0.0, 0.0);
         let mut alignment = vec2(0.0, 0.0);
         let mut cohesion = vec2(0.0, 0.0);
+        let mut affinity_force = vec2(0.0, 0.0);
 
         let mut separation_count = 0;
         let mut alignment_count = 0;
         let mut cohesion_count = 0;
+        let mut affinity_count = 0;
 
-        for &(other_pos, other_vel) in &neighbors {
+        for idx in nearby_indices {
+            let other_pos = boids[idx].position;
+            let other_vel = boids[idx].velocity;
             let diff = self.position - other_pos;
             let dist = diff.length();
 
@@ -146,6 +167,15 @@ impl MyBoid {
 
                 cohesion += other_pos;
                 cohesion_count += 1;
+
+                // Affinity: positive attracts (steer toward), negative repels (steer away)
+                let a = Self::affinity_for(&boids[idx].disease_state, params);
+                if a.abs() > 0.001 {
+                    // Direction toward the other boid, scaled by affinity
+                    let toward = -diff.normalize_or_zero();
+                    affinity_force += toward * a / dist.max(1.0);
+                    affinity_count += 1;
+                }
             }
         }
 
@@ -167,10 +197,17 @@ impl MyBoid {
             cohesion = limit_vec(cohesion, params.max_force);
         }
 
+        if affinity_count > 0 {
+            affinity_force /= affinity_count as f32;
+            affinity_force = affinity_force.normalize_or_zero() * params.max_speed - self.velocity;
+            affinity_force = limit_vec(affinity_force, params.max_force);
+        }
+
         let mut acceleration = vec2(0.0, 0.0);
         acceleration += separation * params.separation_weight;
         acceleration += alignment * params.alignment_weight;
         acceleration += cohesion * params.cohesion_weight;
+        acceleration += affinity_force;
 
         self.velocity += acceleration;
         self.velocity = limit_vec(self.velocity, params.max_speed);
