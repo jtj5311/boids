@@ -1,0 +1,23 @@
+[package]
+name = "boid_simulation"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+path = "src/lib.rs"
+
+[[bin]]
+name = "boid_simulation"
+path = "src/main.rs"
+
+[dependencies]
+macroquad = { version = "0.4", default-features = false }
+egui-macroquad = "0.17"
+
+[profile.release]
+opt-level = "z"     # Optimize for size
+lto = true          # Link-time optimization
+codegen-units = 1
+panic = "abort"
+strip = true
